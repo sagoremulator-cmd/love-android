@@ -21,9 +21,11 @@ jobs:
         submodules: true
     - name: Patch SDL3 Audio Focus
       run: |
-        find . -name "SDL_android.c" | xargs grep -l "AUDIOFOCUS_GAIN" | while read f; do
+        echo "Searching for AUDIOFOCUS_GAIN in all files..."
+        grep -rl "AUDIOFOCUS_GAIN" . --include="*.c" --include="*.cpp" --include="*.java" || echo "Not found in any file"
+        grep -rl "AUDIOFOCUS_GAIN" . --include="*.c" --include="*.cpp" --include="*.java" | while read f; do
           sed -i 's/AUDIOFOCUS_GAIN"/AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK"/g' "$f"
-          echo "Patched $f"
+          echo "Patched: $f"
         done
     - name: Setup Java 17
       uses: actions/setup-java@v4
