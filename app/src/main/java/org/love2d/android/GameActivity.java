@@ -23,6 +23,7 @@ package org.love2d.android;
 import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
@@ -65,10 +66,6 @@ public class GameActivity extends SDLActivity {
     @Override
     protected String getMainSharedObject() {
         String[] libs = getLibraries();
-        // Since Lollipop, you can simply pass "libname.so" to dlopen
-        // and it will resolve correct paths and load correct library.
-        // This is mandatory for extractNativeLibs=false support in
-        // Marshmallow.
         return "lib" + libs[libs.length - 1] + ".so";
     }
 
@@ -96,19 +93,29 @@ public class GameActivity extends SDLActivity {
         isFused = hasEmbeddedGame();
         args = new String[0];
 
+        // Force portrait mode
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+
         if (checkCallingOrSelfPermission(Manifest.permission.VIBRATE) == PackageManager.PERMISSION_GRANTED) {
             vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
         }
 
         Intent intent = getIntent();
         handleIntent(intent, true);
-        // Prevent SDL sending filedropped event. Let us do that instead.
         intent.setData(null);
 
         super.onCreate(savedInstanceState);
 
         if (mBrokenLibraries) {
             return;
+        }
+
+        // Request non-exclusive audio focus so MIUI recorder can capture audio
+        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        if (audioManager != null) {
+            audioManager.requestAudioFocus(null,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK);
         }
 
         // Set low-latency audio values
@@ -121,7 +128,6 @@ public class GameActivity extends SDLActivity {
         }
 
         if (delayedUri != null) {
-            // This delayed fd is only sent if an embedded game is present.
             sendUriAsDroppedFile(delayedUri);
             delayedUri = null;
         }
@@ -139,7 +145,6 @@ public class GameActivity extends SDLActivity {
             Log.d(TAG, "Cancelling vibration");
             vibrator.cancel();
         }
-
         super.onDestroy();
     }
 
@@ -181,14 +186,11 @@ public class GameActivity extends SDLActivity {
         InputStream inputStream;
 
         try {
-            // Prioritize main.lua in assets folder
             inputStream = am.open("main.lua");
         } catch (IOException e) {
-            // Not found, try game.love in assets folder
             try {
                 inputStream = am.open("game.love");
             } catch (IOException e2) {
-                // Not found
                 return false;
             }
         }
@@ -222,7 +224,6 @@ public class GameActivity extends SDLActivity {
 
     @Keep
     public String[] buildFileTree() {
-        // Map key is path, value is directory flag
         HashMap<String, Boolean> map = buildFileTree(getAssets(), "", new HashMap<>());
         ArrayList<String> result = new ArrayList<>();
 
@@ -269,8 +270,6 @@ public class GameActivity extends SDLActivity {
         if (isNativeLibsExtracted()) {
             return applicationInfo.nativeLibraryDir + "/?.so";
         } else {
-            // The native libs are inside the APK and can be loaded directly.
-            // FIXME: What about split APKs?
             String abi = android.os.Build.SUPPORTED_ABIS[0];
             return applicationInfo.sourceDir + "!/lib/" + abi + "/?.so";
         }
@@ -363,16 +362,12 @@ public class GameActivity extends SDLActivity {
         }
 
         if (onCreate) {
-            // Game is not running
             if (isFused) {
-                // Send it as dropped file later
                 delayedUri = game;
             } else {
-                // Process for arguments
                 processOpenGame(game);
             }
         } else {
-            // Game is already running. Send it as dropped file.
             sendUriAsDroppedFile(game);
         }
     }
@@ -380,24 +375,19 @@ public class GameActivity extends SDLActivity {
     private HashMap<String, Boolean> buildFileTree(AssetManager assetManager, String dir, HashMap<String, Boolean> map) {
         String strippedDir = dir.endsWith("/") ? dir.substring(0, dir.length() - 1) : dir;
 
-        // Try open dir
         try {
             InputStream test = assetManager.open(strippedDir);
-            // It's a file
             test.close();
             map.put(strippedDir, false);
         } catch (FileNotFoundException e) {
-            // It's a directory
             String[] list = null;
 
-            // List files
             try {
                 list = assetManager.list(strippedDir);
             } catch (IOException e2) {
                 Log.e(TAG, strippedDir, e2);
             }
 
-            // Mark as file
             map.put(dir, true);
 
             if (!strippedDir.equals(dir)) {
@@ -422,12 +412,10 @@ public class GameActivity extends SDLActivity {
 
         if (scheme != null) {
             if (scheme.equals("content")) {
-                // Pass content URI as-is.
                 args = new String[]{game.toString()};
             } else if (scheme.equals("file")) {
-                // Regular file, pass as-is.
                 args = new String[]{path};
             }
         }
     }
-}
+                                         }
