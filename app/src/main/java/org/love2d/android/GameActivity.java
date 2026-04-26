@@ -28,8 +28,11 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.graphics.Rect;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -60,6 +63,7 @@ public class GameActivity extends SDLActivity {
     private Uri delayedUri = null;
     private String[] args;
     private boolean isFused;
+    private AudioFocusRequest audioFocusRequest;
 
     private static native void nativeSetDefaultStreamValues(int sampleRate, int framesPerBurst);
 
@@ -110,12 +114,21 @@ public class GameActivity extends SDLActivity {
             return;
         }
 
-        // Request non-exclusive audio focus so MIUI recorder can capture audio
+        // Request audio focus with USAGE_GAME so MIUI recorder can capture it
         AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-        if (audioManager != null) {
-            audioManager.requestAudioFocus(null,
-                AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK);
+        if (audioManager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_GAME)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build();
+            audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                .setAudioAttributes(audioAttributes)
+                .setAcceptsDelayedFocusGain(true)
+                .setOnAudioFocusChangeListener(focusChange -> {
+                    Log.d(TAG, "Audio focus changed: " + focusChange);
+                })
+                .build();
+            audioManager.requestAudioFocus(audioFocusRequest);
         }
 
         // Set low-latency audio values
@@ -134,18 +147,25 @@ public class GameActivity extends SDLActivity {
     }
 
     @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        handleIntent(intent, false);
-    }
-
-    @Override
     protected void onDestroy() {
         if (vibrator != null) {
             Log.d(TAG, "Cancelling vibration");
             vibrator.cancel();
         }
+
+        // Release audio focus
+        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        if (audioManager != null && audioFocusRequest != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioManager.abandonAudioFocusRequest(audioFocusRequest);
+        }
+
         super.onDestroy();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        handleIntent(intent, false);
     }
 
     @Override
@@ -418,4 +438,4 @@ public class GameActivity extends SDLActivity {
             }
         }
     }
-                                         }
+}
